@@ -199,6 +199,24 @@ def _incoming_session_dir(session_id: str) -> str:
     return directory
 
 
+def _clear_abandoned_uploads(keep_directory: str) -> None:
+    """Remove only incomplete staged uploads after a failed/restarted import."""
+    root = os.path.dirname(keep_directory)
+    if not os.path.isdir(root) or IMPORT_JOB.get("state") in {"queued", "processing"}:
+        return
+    for name in os.listdir(root):
+        candidate = os.path.join(root, name)
+        if os.path.abspath(candidate) == os.path.abspath(keep_directory):
+            continue
+        try:
+            if os.path.isdir(candidate):
+                shutil.rmtree(candidate)
+            else:
+                os.remove(candidate)
+        except OSError:
+            pass
+
+
 def build_uploaded_dashboard(vdb_df: pl.DataFrame, diamax_df: pl.DataFrame, sales_df: pl.DataFrame) -> dict:
     """Persist source snapshots/history and rebuild the analysis from normalised supplier data."""
     vdb_df, diamax_df, sales_df = map(normalize_headers, (vdb_df, diamax_df, sales_df))
@@ -326,6 +344,8 @@ async def upload_chunk(
         raise HTTPException(status_code=400, detail="Invalid upload chunk metadata.")
     try:
         directory = _incoming_session_dir(session_id)
+        if chunk_index == 0:
+            _clear_abandoned_uploads(directory)
         part_path = os.path.join(directory, f"{file_index}_{chunk_index:06d}.part")
         with open(part_path, "wb") as destination:
             shutil.copyfileobj(chunk.file, destination, length=1024 * 1024)
