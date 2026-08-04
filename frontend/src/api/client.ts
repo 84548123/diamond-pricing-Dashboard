@@ -70,8 +70,10 @@ export const uploadFiles = (vdbFile: File, diamaxFile: File, salesFile: File) =>
   formData.append('vdb_file', vdbFile);
   formData.append('diamax_file', diamaxFile);
   formData.append('sales_file', salesFile);
+  // Let the browser supply the multipart boundary. A manually supplied header can
+  // leave a large upload pending behind a proxy instead of reaching FastAPI.
   return api.post<{ status: string; message: string; summary: SellingSummary }>('/import/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
+    timeout: 5 * 60 * 1000,
   }).then(res => res.data);
 };
 
@@ -79,7 +81,7 @@ export const uploadAnyFiles = (files: File[]) => {
   const formData = new FormData();
   files.forEach(file => formData.append('files', file));
   return api.post<{ status: string; message: string; summary: SellingSummary; detected_sources: Record<string, number> }>('/import/upload-any', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
+    timeout: 5 * 60 * 1000,
   }).then(res => res.data);
 };
 
