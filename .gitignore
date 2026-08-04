@@ -1,0 +1,29 @@
+# CSV Files
+*.csv
+
+# Excel Files
+*.xlsx
+*.xls
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# Database
+*.db
+
+# Runtime market data is uploaded into the deployed service, never committed.
+backend/app/data/*.parquet
+backend/app/data/*.json
+
+# Node
+node_modules/
+
+# Build
+dist/
+build/
+
+# Logs
+*.log

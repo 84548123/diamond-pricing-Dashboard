@@ -1,0 +1,209 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .glass {
+    @apply bg-dark-800/50 backdrop-blur-xl border border-white/5;
+  }
+  
+  .glass-card {
+    @apply bg-dark-800/50 backdrop-blur-xl border border-white/5 rounded-xl shadow-lg;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.5); /* dark-800 */
+    border-radius: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(71, 85, 105, 0.5); /* dark-500 */
+    border-radius: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(100, 116, 139, 0.8); /* dark-400 */
+  }
+}
+
+/* AG Grid Dark Theme Overrides */
+.ag-theme-alpine-dark {
+  --ag-background-color: transparent !important;
+  --ag-header-background-color: rgba(30, 41, 59, 0.5) !important;
+  --ag-odd-row-background-color: rgba(15, 23, 42, 0.3) !important;
+  --ag-row-border-color: rgba(255, 255, 255, 0.05) !important;
+  --ag-borders: none !important;
+  --ag-border-color: rgba(255, 255, 255, 0.05) !important;
+  --ag-header-column-separator-display: none !important;
+  --ag-font-family: 'Inter', sans-serif !important;
+  --ag-font-size: 13px !important;
+  --ag-header-foreground-color: #94a3b8 !important;
+  --ag-data-color: #e2e8f0 !important;
+  --ag-row-hover-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+.ag-theme-alpine-dark .ag-root-wrapper {
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border-radius: 0.75rem !important;
+  background-color: rgba(15, 23, 42, 0.5) !important;
+  backdrop-filter: blur(16px) !important;
+}
+
+/* Light business surface for the Carat Matrix dashboard. */
+.matrix-light {
+  color: #0f172a;
+}
+
+.matrix-light .glass-card {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+.matrix-light [class*="bg-slate-900"] {
+  background-color: #ffffff !important;
+}
+
+.matrix-light [class*="bg-slate-800"] {
+  background-color: #eaf0f7 !important;
+}
+
+.matrix-light [class*="bg-slate-700"] {
+  background-color: #dbe5f0 !important;
+}
+
+.matrix-light [class*="text-white"],
+.matrix-light [class*="text-slate-"] {
+  color: #1e293b !important;
+}
+
+.matrix-light [class*="border-white"],
+.matrix-light [class*="border-slate-"] {
+  border-color: #cbd5e1 !important;
+}
+
+.matrix-light .bg-blue-500\/15 {
+  background-color: #dbeafe !important;
+}
+
+.matrix-light .bg-blue-500\/70 {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+}
+
+.matrix-light select {
+  color: #0f172a !important;
+}
+
+.matrix-light select option {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+/* Application-wide light business theme.  It deliberately keeps the existing
+   component layout, while making labels, table headings and values readable
+   on white surfaces. */
+.light-theme {
+  color: #0f172a;
+  background: #f1f5f9;
+}
+
+.light-theme .glass,
+.light-theme .glass-card {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.07);
+}
+
+.light-theme [class*="bg-dark-"],
+.light-theme [class*="bg-slate-950"],
+.light-theme [class*="bg-slate-900"] {
+  background-color: #ffffff !important;
+}
+
+.light-theme [class*="bg-slate-800"] {
+  background-color: #eef2f7 !important;
+}
+
+.light-theme [class*="bg-slate-700"] {
+  background-color: #e2e8f0 !important;
+}
+
+/* Strong, consistent contrast for dashboard values and column names. */
+.light-theme [class*="text-white"],
+.light-theme [class*="text-slate-"] {
+  color: #172033 !important;
+}
+
+.light-theme table th,
+.light-theme table [role="columnheader"] {
+  color: #0f172a !important;
+  font-weight: 800 !important;
+}
+
+.light-theme table td,
+.light-theme table [role="gridcell"] {
+  color: #1e293b !important;
+  font-weight: 500;
+}
+
+.light-theme [class*="border-white"],
+.light-theme [class*="border-dark-"],
+.light-theme [class*="border-slate-"] {
+  border-color: #cbd5e1 !important;
+}
+
+.light-theme input,
+.light-theme select,
+.light-theme textarea {
+  color: #0f172a !important;
+  background-color: #ffffff !important;
+  border-color: #94a3b8 !important;
+}
+
+.light-theme input::placeholder,
+.light-theme textarea::placeholder {
+  color: #64748b !important;
+  opacity: 1;
+}
+
+.light-theme .custom-scrollbar::-webkit-scrollbar-track {
+  background: #e2e8f0;
+}
+
+.light-theme .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+}
+
+.light-theme .ag-theme-alpine-dark {
+  --ag-background-color: #ffffff !important;
+  --ag-header-background-color: #e2e8f0 !important;
+  --ag-odd-row-background-color: #f8fafc !important;
+  --ag-row-border-color: #cbd5e1 !important;
+  --ag-border-color: #cbd5e1 !important;
+  --ag-header-foreground-color: #0f172a !important;
+  --ag-data-color: #1e293b !important;
+  --ag-row-hover-color: #e0f2fe !important;
+}
+
+.light-theme .ag-theme-alpine-dark .ag-root-wrapper {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+
+.light-theme .ag-theme-alpine-dark .ag-header-cell-text {
+  color: #0f172a !important;
+  font-weight: 800 !important;
+}
