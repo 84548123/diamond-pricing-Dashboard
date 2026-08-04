@@ -7,6 +7,7 @@ import os
 import shutil
 import uuid
 import json
+import tempfile
 from app.services.storage_service import storage_service
 from app.services.sample_generator import generate_datasets
 from app.services.matching_engine import match_stones, COLUMN_ALIASES, MATCH_COLUMNS, auto_detect_columns, canonicalize_values
@@ -194,27 +195,34 @@ def _incoming_session_dir(session_id: str) -> str:
     safe_id = "".join(char for char in session_id if char.isalnum() or char in "-_")
     if not safe_id:
         raise ValueError("Invalid upload session.")
-    directory = os.path.join(storage_service.data_dir, "incoming", safe_id)
+    # The persistent Railway volume is intentionally reserved for completed
+    # parquet snapshots. Large source-upload parts use the container's temporary
+    # disk so they do not exhaust the small attached data volume mid-transfer.
+    directory = os.path.join(tempfile.gettempdir(), "diamond-incoming", safe_id)
     os.makedirs(directory, exist_ok=True)
     return directory
 
 
 def _clear_abandoned_uploads(keep_directory: str) -> None:
     """Remove only incomplete staged uploads after a failed/restarted import."""
-    root = os.path.dirname(keep_directory)
-    if not os.path.isdir(root) or IMPORT_JOB.get("state") in {"queued", "processing"}:
+    if IMPORT_JOB.get("state") in {"queued", "processing"}:
         return
-    for name in os.listdir(root):
-        candidate = os.path.join(root, name)
-        if os.path.abspath(candidate) == os.path.abspath(keep_directory):
+    # Clean both the new temporary root and staging folders left by earlier
+    # versions, which used the persistent volume.
+    for root in {os.path.dirname(keep_directory), os.path.join(storage_service.data_dir, "incoming")}:
+        if not os.path.isdir(root):
             continue
-        try:
-            if os.path.isdir(candidate):
-                shutil.rmtree(candidate)
-            else:
-                os.remove(candidate)
-        except OSError:
-            pass
+        for name in os.listdir(root):
+            candidate = os.path.join(root, name)
+            if os.path.abspath(candidate) == os.path.abspath(keep_directory):
+                continue
+            try:
+                if os.path.isdir(candidate):
+                    shutil.rmtree(candidate)
+                else:
+                    os.remove(candidate)
+            except OSError:
+                pass
 
 
 def build_uploaded_dashboard(vdb_df: pl.DataFrame, diamax_df: pl.DataFrame, sales_df: pl.DataFrame) -> dict:
@@ -375,7 +383,7 @@ async def complete_chunked_upload(
             filename = os.path.basename(str(entry["name"]))
             if not filename:
                 raise ValueError("An uploaded file is missing a name.")
-            final_path = os.path.join(storage_service.data_dir, "incoming", f"{uuid.uuid4().hex}_{filename}")
+            final_path = os.path.join(os.path.dirname(directory), f"{uuid.uuid4().hex}_{filename}")
             with open(final_path, "wb") as destination:
                 for chunk_index in range(total_chunks):
                     part_path = os.path.join(directory, f"{file_index}_{chunk_index:06d}.part")
