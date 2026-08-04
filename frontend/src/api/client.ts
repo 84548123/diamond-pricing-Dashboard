@@ -73,7 +73,7 @@ export const uploadFiles = (vdbFile: File, diamaxFile: File, salesFile: File) =>
   // Let the browser supply the multipart boundary. A manually supplied header can
   // leave a large upload pending behind a proxy instead of reaching FastAPI.
   return api.post<{ status: string; message: string; summary: SellingSummary }>('/import/upload', formData, {
-    timeout: 5 * 60 * 1000,
+    timeout: 20 * 60 * 1000,
   }).then(res => res.data);
 };
 
@@ -81,7 +81,9 @@ export const uploadAnyFiles = (files: File[]) => {
   const formData = new FormData();
   files.forEach(file => formData.append('files', file));
   return api.post<{ status: string; message: string; summary: SellingSummary; detected_sources: Record<string, number> }>('/import/upload-any', formData, {
-    timeout: 5 * 60 * 1000,
+    // Large VDB/market exports can exceed 250 MB; allow the full upload and
+    // server-side analysis to finish rather than cancelling it after 5 minutes.
+    timeout: 20 * 60 * 1000,
   }).then(res => res.data);
 };
 
