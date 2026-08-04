@@ -1,0 +1,7 @@
+.git
+.gitignore
+frontend
+backend/diamonds.db
+backend/app/data
+**/__pycache__
+**/*.pyc
