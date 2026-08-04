@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, RefreshCw, ArrowRight, Database, KeyRound } from 'lucide-react';
-import { uploadAnyFiles, generateSampleData, getAdminKey, setAdminKey, getImportStatus } from '../api/client';
+import { uploadFilesInChunks, generateSampleData, getAdminKey, setAdminKey, getImportStatus } from '../api/client';
 import { useNavigate } from 'react-router-dom';
 
 export const ImportFiles: React.FC = () => {
@@ -19,7 +19,7 @@ export const ImportFiles: React.FC = () => {
     setAdminKey(adminKey);
     setUploading(true); setError(null); setMessage('Inspecting file columns and building your dashboard…');
     try {
-      const result = await uploadAnyFiles(files);
+      const result = await uploadFilesInChunks(files, (completed, total) => setMessage(`Uploading files: ${completed}/${total} parts completed…`));
       if (result.status === 'processing') {
         setMessage(result.message);
         const until = Date.now() + 20 * 60 * 1000;

@@ -87,6 +87,32 @@ export const uploadAnyFiles = (files: File[]) => {
   }).then(res => res.data);
 };
 
+export const uploadFilesInChunks = async (files: File[], onProgress?: (completed: number, total: number) => void) => {
+  const chunkSize = 5 * 1024 * 1024;
+  const sessionId = crypto.randomUUID();
+  const manifest = files.map((file, index) => ({ index, name: file.name, chunks: Math.ceil(file.size / chunkSize) }));
+  const total = manifest.reduce((sum, file) => sum + file.chunks, 0);
+  let completed = 0;
+  for (const entry of manifest) {
+    const file = files[entry.index];
+    for (let chunkIndex = 0; chunkIndex < entry.chunks; chunkIndex += 1) {
+      const body = new FormData();
+      body.append('session_id', sessionId);
+      body.append('file_index', String(entry.index));
+      body.append('chunk_index', String(chunkIndex));
+      body.append('total_chunks', String(entry.chunks));
+      body.append('chunk', file.slice(chunkIndex * chunkSize, Math.min(file.size, (chunkIndex + 1) * chunkSize)), `${file.name}.part`);
+      await api.post('/import/upload-chunk', body, { timeout: 2 * 60 * 1000 });
+      completed += 1;
+      onProgress?.(completed, total);
+    }
+  }
+  const complete = new FormData();
+  complete.append('session_id', sessionId);
+  complete.append('manifest_json', JSON.stringify(manifest));
+  return api.post<{ status: string; message: string; summary: SellingSummary; detected_sources: Record<string, number> }>('/import/complete-chunked', complete, { timeout: 2 * 60 * 1000 }).then(res => res.data);
+};
+
 export const downloadExcelReport = () => 
   api.get('/export/excel', { responseType: 'blob' }).then(res => {
     const url = window.URL.createObjectURL(new Blob([res.data]));

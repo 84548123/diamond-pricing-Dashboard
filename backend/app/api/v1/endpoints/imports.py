@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, BackgroundTasks
 from typing import Literal
 import polars as pl
 import io
@@ -6,6 +6,7 @@ import openpyxl
 import os
 import shutil
 import uuid
+import json
 from app.services.storage_service import storage_service
 from app.services.sample_generator import generate_datasets
 from app.services.matching_engine import match_stones, COLUMN_ALIASES
@@ -161,6 +162,15 @@ def _process_staged_import(staged: list[tuple[str, str]]) -> None:
                 pass
 
 
+def _incoming_session_dir(session_id: str) -> str:
+    safe_id = "".join(char for char in session_id if char.isalnum() or char in "-_")
+    if not safe_id:
+        raise ValueError("Invalid upload session.")
+    directory = os.path.join(storage_service.data_dir, "incoming", safe_id)
+    os.makedirs(directory, exist_ok=True)
+    return directory
+
+
 def build_uploaded_dashboard(vdb_df: pl.DataFrame, diamax_df: pl.DataFrame, sales_df: pl.DataFrame) -> dict:
     """Persist source snapshots/history and rebuild the analysis from normalised supplier data."""
     vdb_df, diamax_df, sales_df = map(normalize_headers, (vdb_df, diamax_df, sales_df))
@@ -273,6 +283,69 @@ async def upload_files(
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error processing uploaded files: {str(e)}")
+
+
+@router.post("/upload-chunk", dependencies=[Depends(require_admin_key)])
+async def upload_chunk(
+    session_id: str = Form(...),
+    file_index: int = Form(...),
+    chunk_index: int = Form(...),
+    total_chunks: int = Form(...),
+    chunk: UploadFile = File(...),
+):
+    """Store a small browser upload part; avoids managed-proxy large body limits."""
+    if file_index < 0 or chunk_index < 0 or total_chunks <= 0 or chunk_index >= total_chunks:
+        raise HTTPException(status_code=400, detail="Invalid upload chunk metadata.")
+    try:
+        directory = _incoming_session_dir(session_id)
+        part_path = os.path.join(directory, f"{file_index}_{chunk_index:06d}.part")
+        with open(part_path, "wb") as destination:
+            shutil.copyfileobj(chunk.file, destination, length=1024 * 1024)
+        return {"status": "stored", "chunk_index": chunk_index}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not store upload chunk: {exc}")
+
+
+@router.post("/complete-chunked", dependencies=[Depends(require_admin_key)])
+async def complete_chunked_upload(
+    background_tasks: BackgroundTasks,
+    session_id: str = Form(...),
+    manifest_json: str = Form(...),
+):
+    """Reconstruct chunked files then run the normal background import."""
+    global IMPORT_JOB
+    try:
+        if IMPORT_JOB.get("state") == "processing":
+            raise ValueError("An import is already being processed. Wait for it to finish before uploading another set of files.")
+        manifest = json.loads(manifest_json)
+        if not isinstance(manifest, list) or not manifest:
+            raise ValueError("Missing uploaded file manifest.")
+        directory = _incoming_session_dir(session_id)
+        staged: list[tuple[str, str]] = []
+        for entry in manifest:
+            file_index, total_chunks = int(entry["index"]), int(entry["chunks"])
+            filename = os.path.basename(str(entry["name"]))
+            if not filename:
+                raise ValueError("An uploaded file is missing a name.")
+            final_path = os.path.join(storage_service.data_dir, "incoming", f"{uuid.uuid4().hex}_{filename}")
+            with open(final_path, "wb") as destination:
+                for chunk_index in range(total_chunks):
+                    part_path = os.path.join(directory, f"{file_index}_{chunk_index:06d}.part")
+                    if not os.path.exists(part_path):
+                        raise ValueError(f"Upload is incomplete for {filename} (missing part {chunk_index + 1}).")
+                    with open(part_path, "rb") as source:
+                        shutil.copyfileobj(source, destination, length=4 * 1024 * 1024)
+                    os.remove(part_path)
+            staged.append((final_path, filename))
+        try:
+            os.rmdir(directory)
+        except OSError:
+            pass
+        IMPORT_JOB = {"state": "queued", "message": "Files uploaded. Preparing analysis in the background…", "detected_sources": {}}
+        background_tasks.add_task(_process_staged_import, staged)
+        return {"status": "processing", "message": "Files uploaded successfully. The dashboard is now being built in the background.", "summary": {}, "detected_sources": {}}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not complete chunked upload: {exc}")
 
 
 @router.post("/upload-any", dependencies=[Depends(require_admin_key)])
