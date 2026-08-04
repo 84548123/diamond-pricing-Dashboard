@@ -1,15 +1,23 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks
 from typing import Literal
 import polars as pl
 import io
 import openpyxl
+import os
+import shutil
+import uuid
 from app.services.storage_service import storage_service
 from app.services.sample_generator import generate_datasets
-from app.services.matching_engine import match_stones
+from app.services.matching_engine import match_stones, COLUMN_ALIASES
 from app.services.selling_engine import calculate_selling_intelligence, generate_summary_stats
 from app.core.security import require_admin_key
 
 router = APIRouter()
+
+# A large VDB export must not be parsed within the HTTP request: managed hosting
+# proxies can close a request before a multi-million-row source finishes.  Files
+# are staged on the persistent volume and rebuilt in the background instead.
+IMPORT_JOB: dict[str, object] = {"state": "idle", "message": "No import is running.", "detected_sources": {}}
 
 HEADER_HINTS = {
     "unique stone id", "stone location", "packet #", "reportnumber", "report number",
@@ -70,14 +78,87 @@ def detect_file_role(df: pl.DataFrame, filename: str) -> Literal["vdb", "diamax"
     return None
 
 
-def read_uploaded_file(file: UploadFile) -> pl.DataFrame:
-    content = file.file.read()
+def read_uploaded_file(file: UploadFile, role: Literal["vdb", "diamax", "sales"] | None = None) -> pl.DataFrame:
     filename = (file.filename or "").lower()
     if filename.endswith(".csv"):
-        return pl.read_csv(io.BytesIO(content), infer_schema_length=0, ignore_errors=True)
+        # UploadFile is already a disk-backed temporary file for large bodies.
+        # Reading it directly avoids retaining a second 260+ MB bytes copy.
+        file.file.seek(0)
+        if role == "vdb":
+            headers = pl.read_csv(file.file, n_rows=0, infer_schema_length=0).columns
+            required = {name for aliases in COLUMN_ALIASES.values() for name in aliases}
+            selected = [header for header in headers if header.strip().lower() in required]
+            file.file.seek(0)
+            return pl.read_csv(file.file, columns=selected or None, infer_schema_length=0, ignore_errors=True, low_memory=True, rechunk=False)
+        return pl.read_csv(file.file, infer_schema_length=0, ignore_errors=True, low_memory=True, rechunk=False)
     if filename.endswith((".xlsx", ".xlsm")):
+        content = file.file.read()
         return read_excel_to_polars(content)
     raise ValueError(f"Unsupported file format for {file.filename}. Upload CSV or XLSX.")
+
+
+def _stage_uploaded_file(file: UploadFile) -> tuple[str, str]:
+    """Copy Starlette's temporary upload to the persistent Railway volume."""
+    stage_dir = os.path.join(storage_service.data_dir, "incoming")
+    os.makedirs(stage_dir, exist_ok=True)
+    filename = os.path.basename(file.filename or "diamond-source.csv")
+    path = os.path.join(stage_dir, f"{uuid.uuid4().hex}_{filename}")
+    file.file.seek(0)
+    with open(path, "wb") as destination:
+        shutil.copyfileobj(file.file, destination, length=4 * 1024 * 1024)
+    return path, filename
+
+
+def _read_staged_file(path: str, filename: str, role: Literal["vdb", "diamax", "sales"] | None = None) -> pl.DataFrame:
+    """Read a staged source without copying its full CSV body into memory."""
+    if filename.lower().endswith(".csv"):
+        if role == "vdb":
+            headers = pl.read_csv(path, n_rows=0, infer_schema_length=0).columns
+            required = {name for aliases in COLUMN_ALIASES.values() for name in aliases}
+            selected = [header for header in headers if header.strip().lower() in required]
+            return pl.read_csv(path, columns=selected or None, infer_schema_length=0, ignore_errors=True, low_memory=True, rechunk=False)
+        return pl.read_csv(path, infer_schema_length=0, ignore_errors=True, low_memory=True, rechunk=False)
+    if filename.lower().endswith((".xlsx", ".xlsm")):
+        with open(path, "rb") as source:
+            return read_excel_to_polars(source.read())
+    raise ValueError(f"Unsupported file format for {filename}. Upload CSV or XLSX.")
+
+
+def _process_staged_import(staged: list[tuple[str, str]]) -> None:
+    """Classify and build outside the request lifecycle for reliable large imports."""
+    global IMPORT_JOB
+    IMPORT_JOB = {"state": "processing", "message": "Reading source files and building the dashboard…", "detected_sources": {}}
+    try:
+        detected: dict[str, pl.DataFrame] = {}
+        ignored: list[str] = []
+        for path, filename in staged:
+            # Header-only pass identifies the source before the memory-efficient load.
+            if filename.lower().endswith(".csv"):
+                header_frame = normalize_headers(pl.read_csv(path, n_rows=0, infer_schema_length=0))
+            else:
+                header_frame = normalize_headers(_read_staged_file(path, filename))
+            role = detect_file_role(header_frame, filename)
+            if role is None:
+                ignored.append(f"{filename}: no recognised diamond stock, VDB, or sales columns")
+                continue
+            frame = normalize_headers(_read_staged_file(path, filename, role))
+            detected[role] = pl.concat([detected[role], frame], how="diagonal_relaxed") if role in detected else frame
+
+        missing = [role.upper() for role in ("vdb", "diamax", "sales") if role not in detected]
+        if missing:
+            raise ValueError("Could not identify required source(s): " + ", ".join(missing) + (". " + " | ".join(ignored) if ignored else ""))
+
+        IMPORT_JOB = {"state": "processing", "message": "Calculating inventory, sales and pricing intelligence…", "detected_sources": {role: len(frame) for role, frame in detected.items()}}
+        summary = build_uploaded_dashboard(detected["vdb"], detected["diamax"], detected["sales"])
+        IMPORT_JOB = {"state": "complete", "message": "Files were identified and the dashboard was rebuilt.", "detected_sources": {role: len(frame) for role, frame in detected.items()}, "summary": summary}
+    except Exception as exc:
+        IMPORT_JOB = {"state": "failed", "message": str(exc), "detected_sources": {}}
+    finally:
+        for path, _ in staged:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
 
 def build_uploaded_dashboard(vdb_df: pl.DataFrame, diamax_df: pl.DataFrame, sales_df: pl.DataFrame) -> dict:
@@ -195,38 +276,26 @@ async def upload_files(
 
 
 @router.post("/upload-any", dependencies=[Depends(require_admin_key)])
-async def upload_any_files(files: list[UploadFile] = File(..., description="CSV/XLSX diamond source files in any order")):
-    """Accept supplier exports in any order and classify VDB, stock and sales from schema."""
+async def upload_any_files(
+    background_tasks: BackgroundTasks,
+    files: list[UploadFile] = File(..., description="CSV/XLSX diamond source files in any order"),
+):
+    """Stage supplier exports immediately, then build the dashboard in the background."""
+    global IMPORT_JOB
     try:
         if not files:
             raise ValueError("Select at least one CSV or XLSX file.")
-        detected: dict[str, pl.DataFrame] = {}
-        ignored: list[str] = []
-        for file in files:
-            frame = normalize_headers(read_uploaded_file(file))
-            role = detect_file_role(frame, file.filename or "")
-            if role is None:
-                ignored.append(f"{file.filename}: no recognised diamond stock, VDB, or sales columns")
-                continue
-            if role in detected:
-                detected[role] = pl.concat([detected[role], frame], how="diagonal_relaxed")
-            else:
-                detected[role] = frame
-
-        missing = [role.upper() for role in ("vdb", "diamax", "sales") if role not in detected]
-        if missing:
-            message = "Could not identify required source(s): " + ", ".join(missing)
-            if ignored:
-                message += ". " + " | ".join(ignored)
-            raise ValueError(message)
-
-        summary = build_uploaded_dashboard(detected["vdb"], detected["diamax"], detected["sales"])
+        if IMPORT_JOB.get("state") == "processing":
+            raise ValueError("An import is already being processed. Wait for it to finish before uploading another set of files.")
+        staged = [_stage_uploaded_file(file) for file in files]
+        IMPORT_JOB = {"state": "queued", "message": "Files uploaded. Preparing analysis in the background…", "detected_sources": {}}
+        background_tasks.add_task(_process_staged_import, staged)
         return {
-            "status": "success",
-            "message": "Files were identified from their columns and the dashboard was rebuilt.",
-            "summary": summary,
-            "detected_sources": {role: len(frame) for role, frame in detected.items()},
-            "ignored_files": ignored,
+            "status": "processing",
+            "message": "Files uploaded successfully. The dashboard is now being built in the background.",
+            "summary": {},
+            "detected_sources": {},
+            "ignored_files": [],
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error processing uploaded files: {str(e)}")
@@ -251,5 +320,9 @@ async def get_import_status():
         "sales_loaded": sales_df is not None,
         "sales_count": len(sales_df) if sales_df is not None else 0,
         "matched_count": len(matched_df) if matched_df is not None else 0,
-        "summary": summary
+        "summary": summary,
+        "processing": IMPORT_JOB.get("state") in {"queued", "processing"},
+        "import_state": IMPORT_JOB.get("state", "idle"),
+        "import_message": IMPORT_JOB.get("message", ""),
+        "detected_sources": IMPORT_JOB.get("detected_sources", {}),
     }

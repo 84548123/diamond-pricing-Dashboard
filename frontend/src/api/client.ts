@@ -162,6 +162,8 @@ export const getLiveSalesDetails = () => api.get<{ items: LiveSalesDetail[] }>('
 export interface ImportStatus {
   vdb_loaded: boolean; vdb_count: number; diamax_loaded: boolean; diamax_count: number;
   sales_loaded: boolean; sales_count: number; matched_count: number; summary: SellingSummary;
+  processing?: boolean; import_state?: 'idle' | 'queued' | 'processing' | 'complete' | 'failed';
+  import_message?: string; detected_sources?: Record<string, number>;
 }
 export const getImportStatus = () => api.get<ImportStatus>('/import/status').then(res => res.data);
 export interface ShapeStockVsSales { shape: string; stock_pcs: number; stock_weight: number; stock_rate: number; stock_amount: number; sales_pcs: number; sales_weight: number; sales_rate: number; sales_amount: number; sales_percentage: number; }

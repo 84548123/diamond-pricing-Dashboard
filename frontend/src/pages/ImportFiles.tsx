@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, RefreshCw, ArrowRight, Database, KeyRound } from 'lucide-react';
-import { uploadAnyFiles, generateSampleData, getAdminKey, setAdminKey } from '../api/client';
+import { uploadAnyFiles, generateSampleData, getAdminKey, setAdminKey, getImportStatus } from '../api/client';
 import { useNavigate } from 'react-router-dom';
 
 export const ImportFiles: React.FC = () => {
@@ -20,6 +20,23 @@ export const ImportFiles: React.FC = () => {
     setUploading(true); setError(null); setMessage('Inspecting file columns and building your dashboard…');
     try {
       const result = await uploadAnyFiles(files);
+      if (result.status === 'processing') {
+        setMessage(result.message);
+        const until = Date.now() + 20 * 60 * 1000;
+        while (Date.now() < until) {
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          const status = await getImportStatus();
+          setMessage(status.import_message || 'Building your dashboard…');
+          if (status.import_state === 'complete') {
+            const sources = Object.entries(status.detected_sources || {}).map(([name, count]) => `${name.toUpperCase()}: ${Number(count).toLocaleString()}`).join(' · ');
+            setMessage(`${status.import_message} ${sources}`);
+            setTimeout(() => navigate('/'), 1100);
+            return;
+          }
+          if (status.import_state === 'failed') throw new Error(status.import_message || 'The files could not be processed.');
+        }
+        throw new Error('Analysis is still running. Keep this page open and refresh shortly to check the dashboard.');
+      }
       const sources = Object.entries(result.detected_sources || {}).map(([name, count]) => `${name.toUpperCase()}: ${Number(count).toLocaleString()}`).join(' · ');
       setMessage(`${result.message} ${sources}`);
       setTimeout(() => navigate('/'), 1100);
