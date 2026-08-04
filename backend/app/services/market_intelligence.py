@@ -782,7 +782,9 @@ def carat_matrix_dashboard(shape: str = "ALL", cut: str = "ALL", polish: str = "
                     .otherwise(range_expr)
                 )
             grouped = normalized.with_columns(range_expr.alias("size_range")).filter(pl.col("size_range").is_not_null())
-            aggregations = [pl.len().alias("pieces")]
+            aggregations = [
+                (pl.col("vdb_piece_count").sum() if is_vdb and "vdb_piece_count" in grouped.columns else pl.len()).alias("pieces")
+            ]
             if is_vdb and "vdb_bottom_price" in grouped.columns:
                 # VDB's uploaded Total is a whole-stone amount. Convert it to $/ct
                 # before deriving a competitive live-market benchmark. A full median
@@ -858,7 +860,8 @@ def carat_matrix_dashboard(shape: str = "ALL", cut: str = "ALL", polish: str = "
             return {
                 (row["size_range"], row["color"], row["clarity"]): row
                 for row in comparable.with_columns(ppc_expr.alias("_vdb_ppc")).group_by(["size_range", "color", "clarity"]).agg([
-                    pl.len().alias("pieces"), pl.col("_vdb_ppc").quantile(0.10, interpolation="nearest").alias("market_ppc"),
+                    (pl.col("vdb_piece_count").sum() if "vdb_piece_count" in comparable.columns else pl.len()).alias("pieces"),
+                    pl.col("_vdb_ppc").quantile(0.10, interpolation="nearest").alias("market_ppc"),
                 ]).to_dicts()
             }
         except Exception:

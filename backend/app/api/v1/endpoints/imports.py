@@ -9,7 +9,7 @@ import uuid
 import json
 from app.services.storage_service import storage_service
 from app.services.sample_generator import generate_datasets
-from app.services.matching_engine import match_stones, COLUMN_ALIASES
+from app.services.matching_engine import match_stones, COLUMN_ALIASES, MATCH_COLUMNS, auto_detect_columns, canonicalize_values
 from app.services.selling_engine import calculate_selling_intelligence, generate_summary_stats
 from app.core.security import require_admin_key
 
@@ -114,15 +114,43 @@ def _read_staged_file(path: str, filename: str, role: Literal["vdb", "diamax", "
     """Read a staged source without copying its full CSV body into memory."""
     if filename.lower().endswith(".csv"):
         if role == "vdb":
-            headers = pl.read_csv(path, n_rows=0, infer_schema_length=0).columns
-            required = {name for aliases in COLUMN_ALIASES.values() for name in aliases}
-            selected = [header for header in headers if header.strip().lower() in required]
-            return pl.read_csv(path, columns=selected or None, infer_schema_length=0, ignore_errors=True, low_memory=True, rechunk=False)
+            return _read_vdb_csv_in_batches(path)
         return pl.read_csv(path, infer_schema_length=0, ignore_errors=True, low_memory=True, rechunk=False)
     if filename.lower().endswith((".xlsx", ".xlsm")):
         with open(path, "rb") as source:
             return read_excel_to_polars(source.read())
     raise ValueError(f"Unsupported file format for {filename}. Upload CSV or XLSX.")
+
+
+def _read_vdb_csv_in_batches(path: str) -> pl.DataFrame:
+    """Aggregate a large VDB CSV incrementally, retaining exact cohort counts/prices."""
+    headers = pl.read_csv(path, n_rows=0, infer_schema_length=0).columns
+    required = {name for aliases in COLUMN_ALIASES.values() for name in aliases}
+    required.update({"status", "availability"})
+    selected = [header for header in headers if header.strip().lower() in required]
+    reader = pl.read_csv_batched(path, columns=selected or None, infer_schema_length=0, ignore_errors=True, batch_size=75_000)
+    groups: list[pl.DataFrame] = []
+    while batches := reader.next_batches(1):
+        frame = normalize_headers(batches[0])
+        normalized = canonicalize_values(auto_detect_columns(frame, is_vdb=True)).filter(pl.col("vdb_bottom_price") > 0)
+        group_columns = [column for column in MATCH_COLUMNS if column in normalized.columns]
+        status_column = next((column for column in normalized.columns if column in {"status", "availability"}), None)
+        if status_column:
+            group_columns.append(status_column)
+        groups.append(normalized.group_by(group_columns).agg([
+            pl.len().alias("vdb_piece_count"),
+            pl.col("vdb_bottom_price").min().alias("vdb_bottom_price"),
+            pl.col("vdb_stone_id").first().alias("vdb_stone_id"),
+        ]))
+    if not groups:
+        return pl.DataFrame()
+    combined = pl.concat(groups, how="diagonal_relaxed")
+    group_columns = [column for column in combined.columns if column not in {"vdb_piece_count", "vdb_bottom_price", "vdb_stone_id"}]
+    return combined.group_by(group_columns).agg([
+        pl.col("vdb_piece_count").sum().alias("vdb_piece_count"),
+        pl.col("vdb_bottom_price").min().alias("vdb_bottom_price"),
+        pl.col("vdb_stone_id").first().alias("vdb_stone_id"),
+    ])
 
 
 def _process_staged_import(staged: list[tuple[str, str]]) -> None:
