@@ -73,6 +73,74 @@ def available_matrix_shapes() -> list[str]:
     return sorted(shapes, key=lambda shape: (preferred_index.get(shape, len(PREFERRED_SHAPE_ORDER)), shape))
 
 
+def uploaded_sales_groups() -> list[dict[str, Any]]:
+    """Build exact Size Master / Shape / Color / Clarity cohorts from uploaded invoices.
+
+    Supplier invoice exports use different names for the same fields.  This is the
+    single live mapping used by the shape, size, sales-details and matrix views so
+    every sales number comes from the same uploaded completed-sale population.
+    """
+    raw_sales = storage_service.load_sales()
+    if raw_sales is None or not len(raw_sales):
+        return []
+
+    names = {column.strip().casefold(): column for column in raw_sales.columns}
+
+    def column(*candidates: str) -> str | None:
+        return next((names[candidate] for candidate in candidates if candidate in names), None)
+
+    shape = column("shape", "shape name", "shapename", "stone shape")
+    color = column("color", "colour", "color name", "colour name")
+    clarity = column("clarity", "clarity name")
+    carat = column("carat", "carat weight", "weight", "cts", "ct")
+    amount = column("final amt", "invoice amt", "sale amt", "sale amount", "sales amount", "net amount", "total amount", "amount", "amt $")
+    rate = column("finalrate", "final rate", "invoice rate", "sale rate", "price per carat", "rate", "ppc", "price/ct", "price per ct")
+    if not all((shape, color, clarity, carat)):
+        return []
+
+    invoice = column("sale invoice no", "invoice no", "invoice number", "invoice", "bill no")
+    stone = column("stone no", "stone id", "packet #", "packet no", "reportnumber", "report number", "certificate no")
+    selected = [shape, color, clarity, carat] + ([amount] if amount else []) + ([rate] if rate else [])
+    if invoice:
+        selected.append(invoice)
+    if stone:
+        selected.append(stone)
+    frame = raw_sales.select(selected)
+    if invoice and stone:
+        frame = frame.unique(subset=[invoice, stone], keep="last", maintain_order=True)
+
+    def number(value: Any) -> float | None:
+        try:
+            value = str(value or "").replace(",", "").replace("$", "").strip()
+            return float(value) if value else None
+        except (TypeError, ValueError):
+            return None
+
+    groups: dict[tuple[str, str, str, str], dict[str, float]] = {}
+    for row in frame.to_dicts():
+        carat_value = number(row.get(carat))
+        if not carat_value:
+            continue
+        size = next((label for label, low, high in SIZE_MASTER_RANGES if low <= carat_value <= high), None)
+        if not size:
+            continue
+        key = (size, str(row.get(shape) or "").strip().upper(), str(row.get(color) or "").strip().upper(), str(row.get(clarity) or "").strip().upper())
+        if not all(key[1:]):
+            continue
+        total = number(row.get(amount)) if amount else None
+        price_per_carat = number(row.get(rate)) if rate else None
+        value = total if total is not None else (price_per_carat * carat_value if price_per_carat is not None else 0.0)
+        group = groups.setdefault(key, {"pcs": 0.0, "carats": 0.0, "value": 0.0})
+        group["pcs"] += 1
+        group["carats"] += carat_value
+        group["value"] += value
+    return [
+        {"Size Bucket": key[0], "ShapeName": key[1], "Colour": key[2], "Clarity": key[3],
+         "Sold_Stones": int(values["pcs"]), "Sold_Carats": values["carats"], "Sales_Value": values["value"]}
+        for key, values in groups.items()
+    ]
+
+
 @lru_cache(maxsize=1)
 def load_market_data() -> dict[str, Any]:
     # This optional reference JSON is available in local development but is not
@@ -199,8 +267,8 @@ def individual_stock_sell_through(limit: int = 200, shape: str | None = None, si
         color_col = column_lookup(raw_sales, ("color", "colour", "color name", "colour name"))
         clarity_col = column_lookup(raw_sales, ("clarity", "clarity name"))
         carat_col = column_lookup(raw_sales, ("carat", "carat weight", "weight", "cts", "ct"))
-        total_col = column_lookup(raw_sales, ("sales value", "sale amount", "sales amount", "amount", "net amount", "total amount", "total", "price"))
-        rate_col = column_lookup(raw_sales, ("ppc", "price per carat", "rate", "price/ct", "price per ct"))
+        total_col = column_lookup(raw_sales, ("final amt", "invoice amt", "sale amt", "sales value", "sale amount", "sales amount", "amount", "net amount", "total amount", "total", "price"))
+        rate_col = column_lookup(raw_sales, ("finalrate", "final rate", "invoice rate", "sale rate", "ppc", "price per carat", "rate", "price/ct", "price per ct"))
         if shape_col and color_col and clarity_col and carat_col and (total_col or rate_col):
             for sale_row in raw_sales.select([shape_col, color_col, clarity_col, carat_col] + ([total_col] if total_col else []) + ([rate_col] if rate_col else [])).to_dicts():
                 carat = as_number(sale_row.get(carat_col))
@@ -416,7 +484,8 @@ def size_master_distribution() -> list[dict[str, Any]]:
         }
         for label, _, _ in SIZE_MASTER_RANGES
     }
-    for row in data["sales_groups"]:
+    sales_groups = uploaded_sales_groups() or data["sales_groups"]
+    for row in sales_groups:
         bounds = source_bounds.get(row["Size Bucket"])
         if bounds is None:
             continue
@@ -457,13 +526,14 @@ def live_sales_details() -> list[dict[str, Any]]:
                 entry["vdb"] += float(row["vdb_bottom_price"])
                 entry["vdb_carats"] += carat
 
-    source_bounds = {item["Size Bucket"]: (float(item["From"]), float(item["To"])) for item in data["size_master"]}
     sales: dict[tuple[str, str, str, str], dict[str, float]] = {}
-    for row in data["sales_groups"]:
-        bounds = source_bounds.get(row["Size Bucket"])
-        if not bounds:
-            continue
-        label = next((name for name, low, high in SIZE_MASTER_RANGES if bounds[0] >= low and bounds[1] <= high), None)
+    sales_groups = uploaded_sales_groups() or data["sales_groups"]
+    source_bounds = {item["Size Bucket"]: (float(item["From"]), float(item["To"])) for item in data["size_master"]}
+    for row in sales_groups:
+        label = row["Size Bucket"]
+        if label not in {name for name, _, _ in SIZE_MASTER_RANGES}:
+            bounds = source_bounds.get(label)
+            label = next((name for name, low, high in SIZE_MASTER_RANGES if bounds and bounds[0] >= low and bounds[1] <= high), None)
         if not label:
             continue
         key = (label, str(row["ShapeName"]).upper(), str(row["Colour"]).upper(), str(row["Clarity"]).upper())
@@ -495,7 +565,7 @@ def sales_details_matrix() -> list[dict[str, Any]]:
         return [fallback(row, "no dated completed-sales records are available.") for row in rows]
     columns = {column.casefold().strip(): column for column in raw_sales.columns}
     def col(*names: str) -> str | None: return next((columns[name] for name in names if name in columns), None)
-    date_col = col("completed sale date", "completed date", "invoice date", "transaction date", "sale date", "date")
+    date_col = col("completed sale date", "completed date", "sale invoicedate", "sale invoice date", "invoice date", "transaction date", "sale date", "date")
     shape_col, color_col, clarity_col, carat_col = col("shape", "shape name", "shapename"), col("color", "colour"), col("clarity"), col("carat", "carat weight", "weight", "cts")
     if not all((date_col, shape_col, color_col, clarity_col, carat_col)):
         return [fallback(row, "sales file is missing completed invoice date or matching attributes.") for row in rows]
@@ -583,7 +653,7 @@ def sales_details_matrix() -> list[dict[str, Any]]:
         return [fallback(row, "No dated completed-sales records are available.") for row in rows]
     columns = {column.casefold().strip(): column for column in raw_sales.columns}
     def col(*names: str) -> str | None: return next((columns[name] for name in names if name in columns), None)
-    date_col = col("completed sale date", "completed date", "invoice date", "transaction date", "sale date", "date")
+    date_col = col("completed sale date", "completed date", "sale invoicedate", "sale invoice date", "invoice date", "transaction date", "sale date", "date")
     shape_col, color_col, clarity_col, carat_col = col("shape", "shape name", "shapename"), col("color", "colour"), col("clarity"), col("carat", "carat weight", "weight", "cts")
     if not all((date_col, shape_col, color_col, clarity_col, carat_col)):
         return [fallback(row, "Sales file is missing a completed invoice date or matching attributes.") for row in rows]
@@ -630,9 +700,15 @@ def sales_details_matrix() -> list[dict[str, Any]]:
 def shape_stock_vs_sales() -> list[dict[str, Any]]:
     """Management-level shape report: current inventory against historical Diamax sales."""
     data = load_market_data()
-    sales_by_shape = {
-        row["ShapeName"]: row for row in data["shape_summary"]
-    }
+    sales_by_shape: dict[str, dict[str, float]] = {}
+    for group in uploaded_sales_groups() or data["sales_groups"]:
+        shape = str(group.get("ShapeName", "")).strip().upper()
+        if not shape:
+            continue
+        item = sales_by_shape.setdefault(shape, {"Sold_Stones": 0.0, "Sold_Carats": 0.0, "Sales_Value": 0.0})
+        item["Sold_Stones"] += float(group.get("Sold_Stones", 0) or 0)
+        item["Sold_Carats"] += float(group.get("Sold_Carats", 0) or 0)
+        item["Sales_Value"] += float(group.get("Sales_Value", 0) or 0)
     inventory_by_shape: dict[str, dict[str, Any]] = {}
     inventory = storage_service.load_matched()
     if inventory is not None and len(inventory):
