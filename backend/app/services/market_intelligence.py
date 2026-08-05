@@ -250,17 +250,21 @@ def individual_stock_sell_through(limit: int = 200, shape: str | None = None, si
         sold = int(sale["pcs"])
         sales_pct = sold / stock * 100 if stock else 0.0
         for stone in stones:
-            carat = float(stone.get("carat") or 0)
-            current = float(stone.get("diamax_price") or 0)
+            # Supplier workbooks frequently contain formatted numeric strings
+            # (for example "$76.00" or "1,250").  Never let one formatted
+            # field turn the full Selling/Inventory Intelligence response into
+            # an HTTP 500 error.
+            carat = as_number(stone.get("carat")) or 0.0
+            current = as_number(stone.get("diamax_price")) or 0.0
             current_rate = current / carat if carat else None
             vdb = stone.get("vdb_bottom_price")
-            vdb_price = float(vdb) if vdb is not None else None
+            vdb_price = as_number(vdb)
             vdb_rate = vdb_price / carat if vdb_price is not None and carat else None
             historical_rate = sale["value"] / sale["carats"] if sale["carats"] else None
             ev_values = ev_rates.get(key, [])
             ev_rate = sum(ev_values) / len(ev_values) if ev_values else None
             top_1pct = stone.get("top_1pct_listing_price")
-            top_1pct_target = float(top_1pct) if top_1pct is not None else None
+            top_1pct_target = as_number(top_1pct)
             market_gap_pct = ((current_rate - vdb_rate) / vdb_rate * 100) if current_rate and vdb_rate else None
             if True:
                 # Match the Carat Matrix exactly: Sold % drives a bounded move
