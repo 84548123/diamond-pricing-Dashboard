@@ -175,8 +175,26 @@ def dashboard_summary() -> dict[str, Any]:
         demand[item["Demand_Category"]] = demand.get(item["Demand_Category"], 0) + 1
         confidence[item["Data_Confidence"]] = confidence.get(item["Data_Confidence"], 0) + 1
         actions[item["Recommendation"]] = actions.get(item["Recommendation"], 0) + 1
+    # Production imports do not ship the optional local JSON metadata.  Derive
+    # the headline cards from the durable uploaded snapshots instead.
+    current_inventory = storage_service.load_current_diamax()
+    if current_inventory is None:
+        current_inventory = storage_service.load_diamax()
+    raw_sales = storage_service.load_sales()
+    live_sales = uploaded_sales_groups()
+    live_sales_records = sum(int(group.get("Sold_Stones", 0) or 0) for group in live_sales)
+    live_sales_carats = sum(float(group.get("Sold_Carats", 0) or 0) for group in live_sales)
+    live_sales_value = sum(float(group.get("Sales_Value", 0) or 0) for group in live_sales)
+    metrics = {
+        **data.get("meta", {}),
+        "sales_records": live_sales_records or (len(raw_sales) if raw_sales is not None else 0),
+        "sales_carats": round(live_sales_carats, 2),
+        "sales_value": round(live_sales_value, 2),
+        "ev_stock": len(current_inventory) if current_inventory is not None else 0,
+        "ev_sold": live_sales_records,
+    }
     return {
-        "metrics": data["meta"],
+        "metrics": metrics,
         "demand": demand,
         "confidence": confidence,
         "actions": actions,
