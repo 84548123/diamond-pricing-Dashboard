@@ -21,12 +21,18 @@ const Action = ({ stone }: { stone: IndividualStockOpportunity }) => {
 
 export const InventoryIntelligence = () => {
   const [summary, setSummary] = useState<MarketSummary | null>(null);
+  const [loadError, setLoadError] = useState('');
   const [stones, setStones] = useState<IndividualStockOpportunity[]>([]);
   const [total, setTotal] = useState(0);
   const [facets, setFacets] = useState<IndividualStockFacets>(emptyFacets);
   const [filters, setFilters] = useState({ search: '', shape: '', range: '', color: '', clarity: '', cut: '', polish: '', symmetry: '', fluorescence: '', lab: '', action: '' });
 
-  useEffect(() => { getMarketSummary().then(setSummary); }, []);
+  useEffect(() => {
+    getMarketSummary().then(setSummary).catch(() => {
+      setLoadError('Inventory summary could not be loaded. Please refresh and try again.');
+      setSummary({ metrics: { sales_records: 0, sales_carats: 0, sales_value: 0, ev_stock: 0, ev_sold: 0 }, demand: {}, confidence: {}, actions: {}, shape_summary: [], data_limit: '' });
+    });
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -47,15 +53,18 @@ export const InventoryIntelligence = () => {
       setStones(report.items);
       setTotal(report.total);
       setFacets(report.facets);
+    }).catch(() => {
+      if (active) setLoadError('Stone recommendations could not be loaded. The page remains available while the API recovers.');
     });
     return () => { active = false; };
   }, [filters.shape, filters.range, filters.color, filters.clarity, filters.cut, filters.polish, filters.symmetry, filters.fluorescence, filters.lab, filters.action, filters.search]);
 
   const filtered = stones;
   const set = (key: keyof typeof filters, value: string) => setFilters(current => ({ ...current, [key]: value }));
+  const count = (value: unknown) => Number(value || 0).toLocaleString();
   const summaryCards = summary ? [
-    ['Current inventory', summary.metrics.ev_stock.toLocaleString(), Gem, 'text-cyan-300'],
-    ['Historical sales', summary.metrics.sales_records.toLocaleString(), TrendingUp, 'text-emerald-300'],
+    ['Current inventory', count(summary.metrics?.ev_stock), Gem, 'text-cyan-300'],
+    ['Historical sales', count(summary.metrics?.sales_records), TrendingUp, 'text-emerald-300'],
     ['Matching excess-stock stones', total.toLocaleString(), AlertTriangle, 'text-rose-300'],
     ['Visible rows', filtered.length.toLocaleString(), TrendingDown, 'text-amber-300'],
   ] : [];
@@ -71,6 +80,7 @@ export const InventoryIntelligence = () => {
 
   return <div className="min-h-screen bg-slate-950 p-6 text-white animate-fade-in">
     <div className="mx-auto max-w-[1800px]">
+      {loadError && <div className="mb-4 rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">{loadError}</div>}
       <header className="mb-6 border-b border-white/10 pb-5">
         <div className="flex items-center gap-3">
           <div className="rounded-xl bg-cyan-500/15 p-2.5"><Gem className="h-6 w-6 text-cyan-300" /></div>
