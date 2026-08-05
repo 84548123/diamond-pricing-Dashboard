@@ -1,7 +1,13 @@
 import axios from 'axios';
 import { StoneSellingMatch, SellingSummary, LeaderboardsData, RuleConfig } from '../types/diamond';
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL || '') + '/api/v1';
+// Azure Container Apps is the production API. Existing Vercel deployments may
+// still carry the retired Railway URL as an environment variable, so do not let
+// that stale value take the public dashboard offline.
+const AZURE_API_URL = 'https://diamond-pricing-api.proudflower-3b8adcfc.centralindia.azurecontainerapps.io';
+const configuredApiUrl = import.meta.env.VITE_API_URL || '';
+const API_ORIGIN = configuredApiUrl.includes('railway.app') ? AZURE_API_URL : (configuredApiUrl || AZURE_API_URL);
+const API_BASE_URL = `${API_ORIGIN}/api/v1`;
 
 const api = axios.create({
   baseURL: API_BASE_URL,
