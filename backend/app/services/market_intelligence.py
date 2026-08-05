@@ -75,10 +75,26 @@ def available_matrix_shapes() -> list[str]:
 
 @lru_cache(maxsize=1)
 def load_market_data() -> dict[str, Any]:
+    # This optional reference JSON is available in local development but is not
+    # required in a production image.  Uploaded VDB, Diamax and sales files are
+    # the source of truth; retain a complete Size Master fallback so every live
+    # dashboard can still build after deployment.
+    defaults: dict[str, Any] = {
+        "meta": {},
+        "size_master": [
+            {"Size Bucket": label, "From": low, "To": high}
+            for label, low, high in SIZE_MASTER_RANGES
+        ],
+        "sales_groups": [],
+        "ev_market": [],
+        "top_sales": [],
+        "bottom_sales": [],
+        "shape_summary": [],
+    }
     if not DATA_PATH.exists():
-        return {"meta": {}, "ev_market": [], "top_sales": [], "bottom_sales": [], "shape_summary": []}
+        return defaults
     with DATA_PATH.open("r", encoding="utf-8") as file:
-        return json.load(file)
+        return {**defaults, **json.load(file)}
 
 
 def dashboard_summary() -> dict[str, Any]:
