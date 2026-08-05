@@ -77,41 +77,43 @@ class StorageService:
         df.write_parquet(self.matched_path, compression="zstd")
         self._upload(self.matched_path)
 
+    def _load_parquet(self, path: str) -> Optional[pl.DataFrame]:
+        """Load a durable snapshot, ignoring an interrupted/corrupt Blob upload.
+
+        A failed import can leave a zero-byte artifact behind.  Treat that as no
+        history so the current upload can replace it, instead of preventing every
+        subsequent CSV/XLSX import from starting.
+        """
+        self._restore(path)
+        if not os.path.exists(path):
+            return None
+        try:
+            return pl.read_parquet(path)
+        except Exception as exc:
+            logger.warning("Ignoring invalid dashboard snapshot %s: %s", os.path.basename(path), exc)
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return None
+
     def load_vdb(self) -> Optional[pl.DataFrame]:
-        self._restore(self.vdb_path)
-        if os.path.exists(self.vdb_path):
-            return pl.read_parquet(self.vdb_path)
-        return None
+        return self._load_parquet(self.vdb_path)
 
     def load_diamax(self) -> Optional[pl.DataFrame]:
-        self._restore(self.diamax_path)
-        if os.path.exists(self.diamax_path):
-            return pl.read_parquet(self.diamax_path)
-        return None
+        return self._load_parquet(self.diamax_path)
 
     def load_current_vdb(self) -> Optional[pl.DataFrame]:
-        self._restore(self.vdb_current_path)
-        if os.path.exists(self.vdb_current_path):
-            return pl.read_parquet(self.vdb_current_path)
-        return None
+        return self._load_parquet(self.vdb_current_path)
 
     def load_current_diamax(self) -> Optional[pl.DataFrame]:
-        self._restore(self.diamax_current_path)
-        if os.path.exists(self.diamax_current_path):
-            return pl.read_parquet(self.diamax_current_path)
-        return None
+        return self._load_parquet(self.diamax_current_path)
 
     def load_sales(self) -> Optional[pl.DataFrame]:
-        self._restore(self.sales_path)
-        if os.path.exists(self.sales_path):
-            return pl.read_parquet(self.sales_path)
-        return None
+        return self._load_parquet(self.sales_path)
 
     def load_matched(self) -> Optional[pl.DataFrame]:
-        self._restore(self.matched_path)
-        if os.path.exists(self.matched_path):
-            return pl.read_parquet(self.matched_path)
-        return None
+        return self._load_parquet(self.matched_path)
 
     def save_config(self, config_data: Dict[str, Any]):
         with open(self.config_path, "w", encoding="utf-8") as f:
