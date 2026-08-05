@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # Storage Paths
     BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     DATA_DIR: str = os.path.join(BASE_DIR, "data")
+    # Optional in local development. In Azure, processed snapshots are persisted
+    # here so a scale-to-zero container can restore the dashboard after restart.
+    AZURE_STORAGE_CONNECTION_STRING: str = ""
+    AZURE_STORAGE_CONTAINER: str = "dashboard-data"
     
     # Selling Engine Thresholds (Configurable)
     PREMIUM_THRESHOLD_PCT: float = 15.0  # >= 15% -> Premium Opportunity

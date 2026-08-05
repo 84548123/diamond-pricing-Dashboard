@@ -1,8 +1,11 @@
 import os
 import json
+import logging
 import polars as pl
 from typing import Dict, Any, Optional
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 class StorageService:
     def __init__(self):
@@ -17,53 +20,95 @@ class StorageService:
         self.matched_path = os.path.join(self.data_dir, "matched_intelligence.parquet")
         self.config_path = os.path.join(self.data_dir, "config.json")
         self.summary_path = os.path.join(self.data_dir, "summary.json")
+        self._blob_container = None
+        if settings.AZURE_STORAGE_CONNECTION_STRING:
+            try:
+                from azure.storage.blob import BlobServiceClient
+                service = BlobServiceClient.from_connection_string(settings.AZURE_STORAGE_CONNECTION_STRING)
+                self._blob_container = service.get_container_client(settings.AZURE_STORAGE_CONTAINER)
+            except Exception as exc:
+                logger.warning("Azure Blob persistence is unavailable: %s", exc)
+
+    def _upload(self, path: str) -> None:
+        """Mirror durable dashboard artifacts to Blob Storage when configured."""
+        if not self._blob_container or not os.path.exists(path):
+            return
+        try:
+            with open(path, "rb") as source:
+                self._blob_container.upload_blob(os.path.basename(path), source, overwrite=True)
+        except Exception as exc:
+            logger.warning("Could not persist %s to Azure Blob Storage: %s", os.path.basename(path), exc)
+
+    def _restore(self, path: str) -> None:
+        """Restore an artifact lazily after a scale-to-zero restart."""
+        if not self._blob_container or os.path.exists(path):
+            return
+        try:
+            with open(path, "wb") as destination:
+                destination.write(self._blob_container.download_blob(os.path.basename(path)).readall())
+        except Exception as exc:
+            if os.path.exists(path):
+                os.remove(path)
+            logger.debug("No Azure Blob artifact available for %s: %s", os.path.basename(path), exc)
 
     def save_vdb(self, df: pl.DataFrame):
         df.write_parquet(self.vdb_path, compression="zstd")
+        self._upload(self.vdb_path)
 
     def save_diamax(self, df: pl.DataFrame):
         df.write_parquet(self.diamax_path, compression="zstd")
+        self._upload(self.diamax_path)
 
     def save_current_vdb(self, df: pl.DataFrame):
         """Save the latest VDB snapshot used for live inventory counts."""
         df.write_parquet(self.vdb_current_path, compression="zstd")
+        self._upload(self.vdb_current_path)
 
     def save_current_diamax(self, df: pl.DataFrame):
         """Save the latest Diamax snapshot used for live inventory counts."""
         df.write_parquet(self.diamax_current_path, compression="zstd")
+        self._upload(self.diamax_current_path)
 
     def save_sales(self, df: pl.DataFrame):
         df.write_parquet(self.sales_path, compression="zstd")
+        self._upload(self.sales_path)
 
     def save_matched(self, df: pl.DataFrame):
         df.write_parquet(self.matched_path, compression="zstd")
+        self._upload(self.matched_path)
 
     def load_vdb(self) -> Optional[pl.DataFrame]:
+        self._restore(self.vdb_path)
         if os.path.exists(self.vdb_path):
             return pl.read_parquet(self.vdb_path)
         return None
 
     def load_diamax(self) -> Optional[pl.DataFrame]:
+        self._restore(self.diamax_path)
         if os.path.exists(self.diamax_path):
             return pl.read_parquet(self.diamax_path)
         return None
 
     def load_current_vdb(self) -> Optional[pl.DataFrame]:
+        self._restore(self.vdb_current_path)
         if os.path.exists(self.vdb_current_path):
             return pl.read_parquet(self.vdb_current_path)
         return None
 
     def load_current_diamax(self) -> Optional[pl.DataFrame]:
+        self._restore(self.diamax_current_path)
         if os.path.exists(self.diamax_current_path):
             return pl.read_parquet(self.diamax_current_path)
         return None
 
     def load_sales(self) -> Optional[pl.DataFrame]:
+        self._restore(self.sales_path)
         if os.path.exists(self.sales_path):
             return pl.read_parquet(self.sales_path)
         return None
 
     def load_matched(self) -> Optional[pl.DataFrame]:
+        self._restore(self.matched_path)
         if os.path.exists(self.matched_path):
             return pl.read_parquet(self.matched_path)
         return None
@@ -71,6 +116,7 @@ class StorageService:
     def save_config(self, config_data: Dict[str, Any]):
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump(config_data, f, indent=2)
+        self._upload(self.config_path)
 
     def load_config(self) -> Dict[str, Any]:
         default_config = {
@@ -79,6 +125,7 @@ class StorageService:
             "good_opp_threshold": settings.GOOD_OPP_THRESHOLD_PCT,
             "wait_threshold": settings.WAIT_THRESHOLD_PCT
         }
+        self._restore(self.config_path)
         if os.path.exists(self.config_path):
             try:
                 with open(self.config_path, "r", encoding="utf-8") as f:
@@ -91,8 +138,10 @@ class StorageService:
     def save_summary(self, summary_data: Dict[str, Any]):
         with open(self.summary_path, "w", encoding="utf-8") as f:
             json.dump(summary_data, f, indent=2)
+        self._upload(self.summary_path)
 
     def load_summary(self) -> Dict[str, Any]:
+        self._restore(self.summary_path)
         if os.path.exists(self.summary_path):
             try:
                 with open(self.summary_path, "r", encoding="utf-8") as f:

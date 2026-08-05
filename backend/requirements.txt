@@ -11,3 +11,4 @@ reportlab>=4.0.0
 python-multipart>=0.0.9
 python-dotenv>=1.0.0
 numpy>=1.26.0
+azure-storage-blob>=12.24.0
