@@ -1009,6 +1009,12 @@ def carat_matrix_dashboard(shape: str = "ALL", cut: str = "ALL", polish: str = "
     range_color_clarity_matrix = []
     for label, low, high in SIZE_MASTER_RANGES:
         inv = inventory.filter((pl.col("carat") >= low) & (pl.col("carat") <= high)) if inventory is not None else pl.DataFrame()
+        # The matrix shape control must constrain every derived metric, not only the
+        # raw VDB/Diamax snapshot counters.  Without this, range-level stock,
+        # pricing and recommendation cohorts could remain "All Shapes" while the
+        # visible selector says ROUND (or another individual shape).
+        if shape.upper() != "ALL" and inv is not None and len(inv) and "shape" in inv.columns:
+            inv = inv.filter(pl.col("shape").cast(pl.Utf8).str.strip_chars().str.to_uppercase() == shape.upper())
         stock_pcs = len(inv)
         stock_weight = float(inv["carat"].sum() or 0) if stock_pcs else 0.0
         current_price = float(inv["diamax_price"].sum() or 0) / stock_weight if stock_weight else None
