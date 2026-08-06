@@ -227,18 +227,14 @@ def _clear_abandoned_uploads(keep_directory: str) -> None:
 
 
 def build_uploaded_dashboard(vdb_df: pl.DataFrame, diamax_df: pl.DataFrame, sales_df: pl.DataFrame) -> dict:
-    """Persist source snapshots/history and rebuild the analysis from normalised supplier data."""
+    """Replace prior sources and rebuild the dashboard only from the current upload."""
     vdb_df, diamax_df, sales_df = map(normalize_headers, (vdb_df, diamax_df, sales_df))
 
-    def append_existing(existing: pl.DataFrame | None, incoming: pl.DataFrame) -> pl.DataFrame:
-        combined = pl.concat([existing, incoming], how="diagonal_relaxed") if existing is not None else incoming
-        return combined.unique(maintain_order=True)
-
-    storage_service.save_vdb(append_existing(storage_service.load_vdb(), vdb_df))
-    storage_service.save_diamax(append_existing(storage_service.load_diamax(), diamax_df))
+    storage_service.save_vdb(vdb_df)
+    storage_service.save_diamax(diamax_df)
     storage_service.save_current_vdb(vdb_df)
     storage_service.save_current_diamax(diamax_df)
-    storage_service.save_sales(append_existing(storage_service.load_sales(), sales_df))
+    storage_service.save_sales(sales_df)
 
     matched_raw = match_stones(vdb_df, diamax_df)
     matched_intelligence = calculate_selling_intelligence(matched_raw, storage_service.load_config())
@@ -306,18 +302,10 @@ async def upload_files(
         diamax_df = diamax_df.rename({c: c.lower().strip() for c in diamax_df.columns})
         sales_df = sales_df.rename({c: c.lower().strip() for c in sales_df.columns})
 
-        # Preserve sales history, but current VDB and Diamax snapshots must never be
-        # accumulated: their piece counts represent only stones live today.
-        def append_existing(existing: pl.DataFrame | None, incoming: pl.DataFrame) -> pl.DataFrame:
-            combined = pl.concat([existing, incoming], how="diagonal_relaxed") if existing is not None else incoming
-            return combined.unique(maintain_order=True)
-
-        vdb_history = append_existing(storage_service.load_vdb(), vdb_df)
-        diamax_history = append_existing(storage_service.load_diamax(), diamax_df)
-        sales_df = append_existing(storage_service.load_sales(), sales_df)
-
-        storage_service.save_vdb(vdb_history)
-        storage_service.save_diamax(diamax_history)
+        # Each three-file upload is a complete analysis cycle. Replace all prior
+        # sources, including sales, so a new report never mixes old and new data.
+        storage_service.save_vdb(vdb_df)
+        storage_service.save_diamax(diamax_df)
         storage_service.save_current_vdb(vdb_df)
         storage_service.save_current_diamax(diamax_df)
         storage_service.save_sales(sales_df)
