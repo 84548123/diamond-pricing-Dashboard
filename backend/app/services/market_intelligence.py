@@ -876,6 +876,10 @@ def carat_matrix_dashboard(shape: str = "ALL", cut: str = "ALL", polish: str = "
             # 3X is a commercial shorthand for Excellent Cut + Polish + Symmetry.
             requested_3x = quality_filters["cut"] == "3X"
             for attribute, requested in quality_filters.items():
+                # Country selects the VDB market benchmark. NJ/Diamax inventory
+                # remains in scope even where its Origin is INDIA.
+                if attribute == "country" and not is_vdb:
+                    continue
                 if attribute not in normalized.columns:
                     continue
                 expected = "EXCELLENT" if requested == "3X" else requested
@@ -945,6 +949,10 @@ def carat_matrix_dashboard(shape: str = "ALL", cut: str = "ALL", polish: str = "
                     frame = frame.filter(pl.col("shape") == shape.upper())
                 requested_3x = quality_filters["cut"] == "3X"
                 for attribute, requested in quality_filters.items():
+                    # Country belongs to the VDB market benchmark, not the supplier
+                    # inventory being priced against it.
+                    if attribute == "country" and not is_vdb:
+                        continue
                     if attribute in frame.columns and requested != "ALL":
                         frame = frame.filter(
                             pl.col(attribute).is_in(["EXCELLENT", "IDEAL"])
@@ -963,7 +971,9 @@ def carat_matrix_dashboard(shape: str = "ALL", cut: str = "ALL", polish: str = "
                 range_expr = pl.when((pl.col("carat") >= min_carat) & (pl.col("carat") <= max_carat)).then(pl.lit(range_label)).otherwise(range_expr)
             vdb = vdb.with_columns(range_expr.alias("size_range")).filter(pl.col("size_range").is_not_null())
             diamax = diamax.with_columns(range_expr.alias("size_range")).filter(pl.col("size_range").is_not_null())
-            profile_columns = [column for column in ("size_range", "shape", "color", "clarity", "cut", "polish", "symmetry", "fluorescence", "lab", "country") if column in vdb.columns and column in diamax.columns]
+            # VDB market country is selected independently from the location/origin
+            # recorded on NJ/Diamax inventory, so it must not be a join key.
+            profile_columns = [column for column in ("size_range", "shape", "color", "clarity", "cut", "polish", "symmetry", "fluorescence", "lab") if column in vdb.columns and column in diamax.columns]
             required_profile = {"size_range", "shape", "color", "clarity"}
             if not required_profile.issubset(profile_columns):
                 return {}

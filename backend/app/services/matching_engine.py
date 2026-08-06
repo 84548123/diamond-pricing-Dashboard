@@ -10,7 +10,7 @@ COLUMN_ALIASES: Dict[str, List[str]] = {
     "vdb_stone_id": ["unique stone id", "stone id", "id", "vdb_stone_id", "vdb stone id"],
     "diamax_stone_id": ["packet #", "reportnumber", "report number", "srno", "diamax_stone_id", "stock #", "stock_id"],
     "shape": ["shape", "shapename", "stone shape"],
-    "carat": ["carat weight", "weight", "carat", "cts", "ct"],
+    "carat": ["carat weight", "weight", "wt", "carat", "cts", "ct"],
     "color": ["color", "colour", "stone color"],
     "clarity": ["clarity", "stone clarity"],
     "cut": ["cut", "cut grade"],
@@ -20,7 +20,9 @@ COLUMN_ALIASES: Dict[str, List[str]] = {
     "lab": ["lab", "laboratory"],
     "country": ["stone location", "location", "country", "origin"],
     "vdb_bottom_price": ["total", "ppc", "vdb_bottom_price", "vdb price", "market price"],
-    "diamax_price": ["amt $", "amt", "ppc", "diamax_price", "cost", "price"]
+    # NJ stock exports use Price A as their primary per-carat asking price.
+    # Amount A is the whole-stone amount, so it must not be used as the matrix rate.
+    "diamax_price": ["price a", "price b", "price c", "amt $", "amt", "ppc", "diamax_price", "cost", "price"]
 }
 
 CUT_MAP = {
@@ -45,6 +47,21 @@ COUNTRY_MAP = {
     "ISRAEL": "ISRAEL", "ISR": "ISRAEL",
     "UNITED ARAB EMIRATES": "UAE", "UAE": "UAE",
     "HONG KONG": "HONG KONG", "HK": "HONG KONG"
+}
+
+# Supplier exports commonly use abbreviated shape codes. Normalize both VDB and
+# inventory sources before any matrix aggregation, so RD and ROUND share a cohort.
+SHAPE_MAP = {
+    "RD": "ROUND", "RND": "ROUND", "ROUND": "ROUND",
+    "OV": "OVAL", "OVL": "OVAL", "OVAL": "OVAL",
+    "RA": "RADIANT", "RAD": "RADIANT", "RADIANT": "RADIANT",
+    "PR": "PRINCESS", "PS": "PRINCESS", "PRINCESS": "PRINCESS",
+    "PE": "PEAR", "PEAR": "PEAR",
+    "MQ": "MARQUISE", "MARQ": "MARQUISE", "MARQUISE": "MARQUISE",
+    "CU": "CUSHION", "CON": "CUSHION", "LCU": "CUSHION", "LCUV": "CUSHION", "CUSHION": "CUSHION",
+    "AS": "ASSCHER", "ASSCHER": "ASSCHER",
+    "EC": "EMERALD", "EM": "EMERALD", "EMERALD": "EMERALD",
+    "HM": "HEART", "HEART": "HEART",
 }
 
 def auto_detect_columns(df: pl.DataFrame, is_vdb: bool = True) -> pl.DataFrame:
@@ -100,6 +117,7 @@ def canonicalize_values(df: pl.DataFrame) -> pl.DataFrame:
             .str.replace(r"^LONG\s+", "")
             .str.replace(r"^LG\s+", "")
             .str.split(" ").list.get(0)
+            .replace(SHAPE_MAP, default=pl.col("shape").cast(pl.Utf8).str.strip_chars().str.to_uppercase().str.split(" ").list.get(0))
             .alias("shape")
         )
 

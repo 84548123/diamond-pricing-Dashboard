@@ -76,7 +76,7 @@ def detect_file_role(df: pl.DataFrame, filename: str) -> Literal["vdb", "diamax"
         return "sales"
     if {"unique stone id", "stone location", "page_number", "max_page_number"} & columns or "vdb" in text or "evermine" in text:
         return "vdb"
-    if {"packet #", "reportnumber", "report number", "amt $", "box no"} & columns or "diamax" in text or "stock" in text:
+    if {"packet #", "reportnumber", "report number", "amt $", "price a", "box no"} & columns or "diamax" in text or "stock" in text:
         return "diamax"
     return None
 
