@@ -13,25 +13,26 @@ export const CaratMatrixPage = () => {
   const [rangeColors, setRangeColors] = useState<RangeColorRow[]>([]);
   const [clarityMatrix, setClarityMatrix] = useState<RangeColorClarityRow[]>([]);
   const [shape, setShape] = useState('ALL');
-  const [cut, setCut] = useState('ALL');
-  const [polish, setPolish] = useState('ALL');
-  const [symmetry, setSymmetry] = useState('ALL');
-  const [fluorescence, setFluorescence] = useState('ALL');
-  const [lab, setLab] = useState('ALL');
-  const [country, setCountry] = useState('ALL');
+  const [cut, setCut] = useState('3X');
+  const [polish, setPolish] = useState('EXCELLENT');
+  const [symmetry, setSymmetry] = useState('EXCELLENT');
+  const [fluorescence, setFluorescence] = useState('NONE');
+  const [lab, setLab] = useState('IGI');
+  const [country, setCountry] = useState('INDIA');
+  const [growthType] = useState('CVD');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const loadMatrix = () => {
     setLoading(true); setError(false);
-    getCaratMatrixDashboard({ shape, cut, polish, symmetry, fluorescence, lab, country }).then(result => { setRows(result.carat_matrix); setColors(result.color_clarity_matrix); setRangeColors(result.range_color_matrix); setClarityMatrix(result.range_color_clarity_matrix); }).catch(() => setError(true)).finally(() => setLoading(false));
+    getCaratMatrixDashboard({ shape, cut, polish, symmetry, fluorescence, lab, country, growth_type: growthType }).then(result => { setRows(result.carat_matrix); setColors(result.color_clarity_matrix); setRangeColors(result.range_color_matrix); setClarityMatrix(result.range_color_clarity_matrix); }).catch(() => setError(true)).finally(() => setLoading(false));
   };
-  useEffect(() => { loadMatrix(); }, [shape, cut, polish, symmetry, fluorescence, lab, country]);
+  useEffect(() => { loadMatrix(); }, [shape, cut, polish, symmetry, fluorescence, lab, country, growthType]);
   const downloadResults = async () => {
     setDownloading(true);
     // The dashboard may be focused on one shape, but the Excel workbook is the
     // complete comparison report and must keep every available shape side-by-side.
-    try { await downloadCaratMatrixExcel({ shape: 'ALL', cut, polish, symmetry, fluorescence, lab, country }); }
+    try { await downloadCaratMatrixExcel({ shape: 'ALL', cut, polish, symmetry, fluorescence, lab, country, growth_type: growthType }); }
     finally { setDownloading(false); }
   };
   if (loading) return <div className="min-h-[400px] flex items-center justify-center"><Spinner size="lg" /></div>;
@@ -39,8 +40,8 @@ export const CaratMatrixPage = () => {
   return <div className="matrix-light space-y-5 animate-fade-in text-slate-900">
     <div className="glass-card p-6"><div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div className="flex items-center gap-3"><div className="p-2.5 rounded-xl bg-brand-500/20"><Gem className="w-6 h-6 text-brand-300" /></div><div><h1 className="text-2xl font-black">Carat Matrix Intelligence</h1><p className="text-xs text-slate-400 mt-1">Exact Size Master range → Shape → Color → Clarity counts. Quality and location filters apply identically to VDB and Diamax snapshots.</p></div></div><div className="flex flex-wrap gap-2 text-xs"><QualityFilter label="Shape" value={shape} onChange={setShape} options={['ALL', 'ROUND', 'OVAL', 'EMERALD', 'RADIANT', 'PRINCESS', 'PEAR', 'MARQUISE', 'HEART', 'CUSHION', 'ASSCHER']} /><QualityFilter label="Cut" value={cut} onChange={setCut} options={['ALL', 'EX_OR_IDEAL', '3X', 'EXCELLENT', 'IDEAL']} /><QualityFilter label="Polish" value={polish} onChange={setPolish} options={['ALL', 'EX_OR_IDEAL', 'EXCELLENT', 'IDEAL']} /><QualityFilter label="Symmetry" value={symmetry} onChange={setSymmetry} options={['ALL', 'EX_OR_IDEAL', 'EXCELLENT', 'IDEAL']} /><QualityFilter label="Fluorescence" value={fluorescence} onChange={setFluorescence} options={['ALL', 'NONE', 'FAINT', 'MEDIUM', 'STRONG']} /><QualityFilter label="Lab" value={lab} onChange={setLab} options={['ALL', 'IGI', 'GIA', 'HRD']} /><QualityFilter label="Location" value={country} onChange={setCountry} options={['ALL', 'INDIA', 'USA', 'BELGIUM', 'UAE', 'ISRAEL', 'HONG KONG']} /><button type="button" onClick={downloadResults} disabled={downloading} className="inline-flex items-center gap-1 rounded-lg bg-emerald-500 px-3 py-1.5 font-bold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-wait disabled:opacity-60"><Download className="h-3.5 w-3.5" />{downloading ? 'Preparing…' : 'Download Excel'}</button></div></div></div>
     <div className="flex items-center justify-end gap-2 px-1 text-xs">
-      <span className="font-bold text-slate-600">VDB market benchmark</span>
-      <button type="button" onClick={() => setCountry('ALL')} className={`rounded-lg px-3 py-1.5 font-bold ${country === 'ALL' ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>All locations</button>
+      <span className="font-bold text-slate-600">CVD · 3X · IGI · None · VDB market</span>
+      <button type="button" onClick={() => setCountry('INDIA')} className={`rounded-lg px-3 py-1.5 font-bold ${country === 'INDIA' ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>India</button>
       <button type="button" onClick={() => setCountry('USA')} className={`rounded-lg px-3 py-1.5 font-bold ${country === 'USA' ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>USA</button>
       {country === 'USA' && <span className="rounded-lg bg-cyan-100 px-2 py-1 font-semibold text-cyan-800">NJ stock vs USA VDB</span>}
     </div>

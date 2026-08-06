@@ -58,17 +58,17 @@ async def get_shape_stock_vs_sales():
 
 
 @router.get("/market-intelligence/carat-matrix-dashboard")
-async def get_carat_matrix_dashboard(shape: str = Query("ALL"), cut: str = Query("ALL"), polish: str = Query("ALL"), symmetry: str = Query("ALL"), fluorescence: str = Query("ALL"), lab: str = Query("ALL"), country: str = Query("ALL")):
+async def get_carat_matrix_dashboard(shape: str = Query("ALL"), cut: str = Query("ALL"), polish: str = Query("ALL"), symmetry: str = Query("ALL"), fluorescence: str = Query("ALL"), lab: str = Query("ALL"), country: str = Query("INDIA"), growth_type: str = Query("CVD")):
     try:
-        return carat_matrix_dashboard(shape=shape, cut=cut, polish=polish, symmetry=symmetry, fluorescence=fluorescence, lab=lab, country=country)
+        return carat_matrix_dashboard(shape=shape, cut=cut, polish=polish, symmetry=symmetry, fluorescence=fluorescence, lab=lab, country=country, growth_type=growth_type)
     except Exception as error:
         raise HTTPException(status_code=500, detail=f"Carat matrix build failed: {error}")
 
 
 @router.get("/market-intelligence/carat-matrix-export")
-async def export_carat_matrix(shape: str = Query("ALL"), cut: str = Query("ALL"), polish: str = Query("ALL"), symmetry: str = Query("ALL"), fluorescence: str = Query("ALL"), lab: str = Query("ALL"), country: str = Query("ALL")):
+async def export_carat_matrix(shape: str = Query("ALL"), cut: str = Query("ALL"), polish: str = Query("ALL"), symmetry: str = Query("ALL"), fluorescence: str = Query("ALL"), lab: str = Query("ALL"), country: str = Query("INDIA"), growth_type: str = Query("CVD")):
     try:
-        filters = {"shape": shape, "cut": cut, "polish": polish, "symmetry": symmetry, "fluorescence": fluorescence, "lab": lab, "country": country}
+        filters = {"shape": shape, "cut": cut, "polish": polish, "symmetry": symmetry, "fluorescence": fluorescence, "lab": lab, "country": country, "growth_type": growth_type}
         matrix = carat_matrix_dashboard(**filters)
         # The export is a complete Shape-by-Shape report. A selected shape keeps the
         # workbook focused; otherwise each available commercial shape gets its own

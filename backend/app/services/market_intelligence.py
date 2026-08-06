@@ -766,7 +766,7 @@ def shape_stock_vs_sales() -> list[dict[str, Any]]:
     return sorted(result, key=lambda item: item["stock_pcs"] + item["sales_pcs"], reverse=True)
 
 
-def carat_matrix_dashboard(shape: str = "ALL", cut: str = "ALL", polish: str = "ALL", symmetry: str = "ALL", fluorescence: str = "ALL", lab: str = "ALL", country: str = "ALL") -> dict[str, Any]:
+def carat_matrix_dashboard(shape: str = "ALL", cut: str = "ALL", polish: str = "ALL", symmetry: str = "ALL", fluorescence: str = "ALL", lab: str = "ALL", country: str = "INDIA", growth_type: str = "CVD") -> dict[str, Any]:
     """Business-ready carat dashboard; price actions are withheld without sales evidence."""
     data = load_market_data()
     inventory = storage_service.load_matched()
@@ -776,6 +776,7 @@ def carat_matrix_dashboard(shape: str = "ALL", cut: str = "ALL", polish: str = "
     quality_filters = {
         "cut": cut.upper(), "polish": polish.upper(), "symmetry": symmetry.upper(),
         "fluorescence": fluorescence.upper(), "lab": lab.upper(), "country": country.upper(),
+        "growth_type": growth_type.upper(),
     }
     # Build sales cohorts from the latest uploaded sales source whenever its matrix
     # fields are available. The prepared JSON is only a backward-compatible fallback.
@@ -878,7 +879,7 @@ def carat_matrix_dashboard(shape: str = "ALL", cut: str = "ALL", polish: str = "
             for attribute, requested in quality_filters.items():
                 # Country selects the VDB market benchmark. NJ/Diamax inventory
                 # remains in scope even where its Origin is INDIA.
-                if attribute == "country" and not is_vdb:
+                if attribute in {"country", "growth_type"} and not is_vdb:
                     continue
                 if attribute not in normalized.columns:
                     continue
@@ -951,7 +952,7 @@ def carat_matrix_dashboard(shape: str = "ALL", cut: str = "ALL", polish: str = "
                 for attribute, requested in quality_filters.items():
                     # Country belongs to the VDB market benchmark, not the supplier
                     # inventory being priced against it.
-                    if attribute == "country" and not is_vdb:
+                    if attribute in {"country", "growth_type"} and not is_vdb:
                         continue
                     if attribute in frame.columns and requested != "ALL":
                         frame = frame.filter(

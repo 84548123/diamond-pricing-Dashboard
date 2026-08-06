@@ -18,6 +18,7 @@ COLUMN_ALIASES: Dict[str, List[str]] = {
     "symmetry": ["symmetry"],
     "fluorescence": ["fluorescence", "flour", "flouro", "fluo"],
     "lab": ["lab", "laboratory"],
+    "growth_type": ["growth type", "growth", "diamond type", "type"],
     "country": ["stone location", "location", "country", "origin"],
     "vdb_bottom_price": ["total", "ppc", "vdb_bottom_price", "vdb price", "market price"],
     # NJ stock exports use Price A as their primary per-carat asking price.
