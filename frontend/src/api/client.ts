@@ -193,7 +193,7 @@ export const getLiveSalesDetails = () => api.get<{ items: LiveSalesDetail[] }>('
 
 export interface ImportStatus {
   vdb_loaded: boolean; vdb_count: number; diamax_loaded: boolean; diamax_count: number;
-  sales_loaded: boolean; sales_count: number; matched_count: number; summary: SellingSummary;
+  sales_loaded: boolean; sales_count: number; sales_unique_count?: number; matched_count: number; summary: SellingSummary;
   processing?: boolean; import_state?: 'idle' | 'queued' | 'processing' | 'complete' | 'failed';
   import_message?: string; detected_sources?: Record<string, number>;
 }

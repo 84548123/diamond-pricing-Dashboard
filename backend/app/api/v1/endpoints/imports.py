@@ -12,6 +12,7 @@ from app.services.storage_service import storage_service
 from app.services.sample_generator import generate_datasets
 from app.services.matching_engine import match_stones, COLUMN_ALIASES, MATCH_COLUMNS, auto_detect_columns, canonicalize_values
 from app.services.selling_engine import calculate_selling_intelligence, generate_summary_stats
+from app.services.market_intelligence import uploaded_sales_groups
 from app.core.security import require_admin_key
 
 router = APIRouter()
@@ -438,6 +439,7 @@ async def get_import_status():
     sales_df = storage_service.load_sales()
     matched_df = storage_service.load_matched()
     summary = storage_service.load_summary()
+    sales_unique_count = sum(int(group.get("Sold_Stones", 0) or 0) for group in uploaded_sales_groups())
 
     return {
         "vdb_loaded": vdb_df is not None,
@@ -448,6 +450,7 @@ async def get_import_status():
         "diamax_current_count": len(current_diamax_df) if current_diamax_df is not None else 0,
         "sales_loaded": sales_df is not None,
         "sales_count": len(sales_df) if sales_df is not None else 0,
+        "sales_unique_count": sales_unique_count,
         "matched_count": len(matched_df) if matched_df is not None else 0,
         "summary": summary,
         "processing": IMPORT_JOB.get("state") in {"queued", "processing"},
