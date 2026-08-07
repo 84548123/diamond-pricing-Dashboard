@@ -992,10 +992,11 @@ def carat_matrix_dashboard(shape: str = "ALL", cut: str = "ALL", polish: str = "
         except Exception:
             return {}
 
-    # Display the exact comparable VDB supply whenever the profile join succeeds.
+    # Keep the displayed VDB piece count as the complete filtered live VDB market.
+    # The exact-profile subset is evidence for pricing, not a replacement for the
+    # market inventory count. Replacing the count made the matrix understate VDB
+    # supply and made a selected shape appear to have the same total as All Shapes.
     comparable_vdb_groups = exact_comparable_vdb_groups()
-    if comparable_vdb_groups:
-        vdb_matrix_groups = comparable_vdb_groups
 
     def parse_range(label: str) -> tuple[float, float] | None:
         try:
@@ -1167,7 +1168,11 @@ def carat_matrix_dashboard(shape: str = "ALL", cut: str = "ALL", polish: str = "
                 # Exact 10-attribute matching is preferred, but a direct VDB price
                 # from the identical visible matrix cohort is a valid fallback when
                 # the two suppliers use different Lab/location/profile values.
-                direct_vdb_price = vdb_matrix_groups.get(matrix_key, {}).get("market_ppc")
+                # Prefer an exact comparable VDB rate for pricing, while VDB Pieces
+                # above remains the complete filtered VDB on-hand population.
+                direct_vdb_price = comparable_vdb_groups.get(matrix_key, {}).get("market_ppc")
+                if direct_vdb_price is None:
+                    direct_vdb_price = vdb_matrix_groups.get(matrix_key, {}).get("market_ppc")
                 if vdb_price is None and direct_vdb_price is not None:
                     vdb_price = float(direct_vdb_price)
                 ev_clarity = [item for item in color_ev if item["Clarity"] == clarity]
